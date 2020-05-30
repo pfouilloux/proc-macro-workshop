@@ -7,8 +7,10 @@ pub fn derive(input: &DeriveInput) -> TokenStream {
     let builder_name = &format_ident!("{}Builder", caller_name.to_string());
 
     let builder_declaration = write_builder_declaration(builder_name, &input.data);
-    let caller_implementation = write_caller_implementation(caller_name, builder_name, &input.data);
-    let builder_implementation = write_builder_implementation(builder_name, &input.data);
+    let caller_implementation = write_caller_implementation(caller_name,
+                                                            builder_name, &input.data);
+    let builder_implementation = write_builder_implementation(caller_name,
+                                                              builder_name, &input.data);
 
     quote! {
         #builder_declaration
@@ -19,7 +21,7 @@ pub fn derive(input: &DeriveInput) -> TokenStream {
 
 fn write_builder_declaration(name: &Ident, data: &Data) -> TokenStream {
     let fields = write_for_fields(data,
-                                  |n, f| write_field_declaration(n, f));
+                                  |n, f| write_declaration(n, f));
 
     quote! {
         struct #name{ #(#fields),* }
@@ -30,7 +32,7 @@ fn write_caller_implementation(caller_name: &Ident,
                                builder_name: &Ident,
                                data: &Data) -> TokenStream {
     let fields = write_for_fields(data,
-                                  |n, _| write_field_default(n));
+                                  |n, _| write_default(n));
 
     quote! {
         impl #caller_name {
@@ -41,14 +43,23 @@ fn write_caller_implementation(caller_name: &Ident,
     }
 }
 
-fn write_builder_implementation(builder_name: &Ident,
+fn write_builder_implementation(caller_name: &Ident,
+                                builder_name: &Ident,
                                 data: &Data) -> TokenStream {
     let setters = write_for_fields(data,
                                    |n, f| write_setter(n, f));
+    let initialisations = write_for_fields(data,
+                                           |n, _| write_initialisation(n));
 
     quote! {
         impl #builder_name {
             #(#setters)*
+
+            pub fn build(&self) -> Result<#caller_name, Box<dyn std::error::Error>> {
+                Ok(#caller_name {
+                    #(#initialisations),*
+                })
+            }
         }
     }
 }
@@ -63,13 +74,13 @@ fn write_for_fields<T>(data: &Data, transformation: T) -> Vec<TokenStream>
     }
 }
 
-fn write_field_declaration(name: &Ident, field: &Field) -> TokenStream {
+fn write_declaration(name: &Ident, field: &Field) -> TokenStream {
     let ty = &field.ty;
 
     quote! { #name: Option<#ty> }
 }
 
-fn write_field_default(name: &Ident) -> TokenStream {
+fn write_default(name: &Ident) -> TokenStream {
     quote! { #name: None }
 }
 
@@ -82,6 +93,12 @@ fn write_setter(name: &Ident, field: &Field) -> TokenStream {
             self
         }
      }
+}
+
+fn write_initialisation(name: &Ident) -> TokenStream {
+    let message = format!("Please set {}", name);
+
+    quote! { #name: self.#name.clone().ok_or(Box::<std::error::Error>::from(#message))? }
 }
 
 fn derive_field_name(field: &Field, _index: u32) -> Ident {
@@ -116,7 +133,9 @@ mod tests {
                         }
 
                         impl BobTheBuilder {
-
+                            pub fn build(&self) -> Result<BobThe, Box<dyn std::error::Error>> {
+                                Ok(BobThe{})
+                            }
                         }
                    }.to_string());
     }
@@ -160,6 +179,15 @@ mod tests {
                                 self.another_thing = Some(another_thing);
                                 self
                             }
+
+                            pub fn build(&self) -> Result<Test, Box<dyn std::error::Error>> {
+                                Ok(Test {
+                                    a_thing: self.a_thing.clone()
+                                        .ok_or(Box::<std::error::Error>::from("Please set a_thing"))?,
+                                    another_thing: self.another_thing.clone()
+                                        .ok_or(Box::<std::error::Error>::from("Please set another_thing"))?
+                                })
+                            }
                         }
                    }.to_string());
     }
@@ -199,6 +227,15 @@ mod tests {
                             fn field1(&mut self, field1: String) -> &mut Self {
                                 self.field1 = Some(field1);
                                 self
+                            }
+
+                            pub fn build(&self) -> Result<Test, Box<dyn std::error::Error>> {
+                                Ok(Test {
+                                    field0: self.field0.clone()
+                                        .ok_or(Box::<std::error::Error>::from("Please set field0"))?,
+                                    field1: self.field1.clone()
+                                        .ok_or(Box::<std::error::Error>::from("Please set field1"))?
+                                })
                             }
                         }
                    }.to_string());
