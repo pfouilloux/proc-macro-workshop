@@ -6,20 +6,18 @@ pub fn derive(input: &DeriveInput) -> TokenStream {
     let caller_name = &input.ident;
     let builder_name = &format_ident!("{}Builder", caller_name.to_string());
 
-    let builder_struct = write_builder_struct(builder_name, &input.data);
-    let caller_impl = write_caller_implementation(caller_name, builder_name, &input.data);
+    let builder_declaration = write_builder_declaration(builder_name, &input.data);
+    let caller_implementation = write_caller_implementation(caller_name, builder_name, &input.data);
+    let builder_implementation = write_builder_implementation(builder_name, &input.data);
 
-    let astream = quote! {
-        #builder_struct
-        #caller_impl
-    };
-
-    println!("{}", astream.to_string());
-
-    astream
+    quote! {
+        #builder_declaration
+        #caller_implementation
+        #builder_implementation
+    }
 }
 
-fn write_builder_struct(name: &Ident, data: &Data) -> TokenStream {
+fn write_builder_declaration(name: &Ident, data: &Data) -> TokenStream {
     let fields = write_for_fields(data,
                                   |n, f| write_field_declaration(n, f));
 
@@ -43,6 +41,18 @@ fn write_caller_implementation(caller_name: &Ident,
     }
 }
 
+fn write_builder_implementation(builder_name: &Ident,
+                                data: &Data) -> TokenStream {
+    let setters = write_for_fields(data,
+                                   |n, f| write_setter(n, f));
+
+    quote! {
+        impl #builder_name {
+            #(#setters)*
+        }
+    }
+}
+
 fn write_for_fields<T>(data: &Data, transformation: T) -> Vec<TokenStream>
     where T: Fn(&Ident, &Field) -> TokenStream {
     match data {
@@ -61,6 +71,17 @@ fn write_field_declaration(name: &Ident, field: &Field) -> TokenStream {
 
 fn write_field_default(name: &Ident) -> TokenStream {
     quote! { #name: None }
+}
+
+fn write_setter(name: &Ident, field: &Field) -> TokenStream {
+    let ty = &field.ty;
+
+    quote! {
+        fn #name(&mut self, #name: #ty) -> &mut Self {
+            self.#name = Some(#name);
+            self
+        }
+     }
 }
 
 fn derive_field_name(field: &Field, _index: u32) -> Ident {
@@ -93,6 +114,10 @@ mod tests {
                                 BobTheBuilder{}
                             }
                         }
+
+                        impl BobTheBuilder {
+
+                        }
                    }.to_string());
     }
 
@@ -101,8 +126,8 @@ mod tests {
         let input = parse2::<DeriveInput>(
             quote! {
                 struct Test {
-                    pub athing: i32,
-                    anotherThing: String
+                    pub a_thing: i32,
+                    another_thing: String
                 }
             }
         ).unwrap();
@@ -112,16 +137,28 @@ mod tests {
         assert_eq!(actual.to_string(),
                    quote! {
                         struct TestBuilder {
-                            athing: Option<i32>,
-                            anotherThing: Option<String>
+                            a_thing: Option<i32>,
+                            another_thing: Option<String>
                         }
 
                         impl Test {
                             fn builder() -> TestBuilder {
                                 TestBuilder {
-                                    athing: None,
-                                    anotherThing: None
+                                    a_thing: None,
+                                    another_thing: None
                                 }
+                            }
+                        }
+
+                        impl TestBuilder {
+                            fn a_thing(&mut self, a_thing: i32) -> &mut Self {
+                                self.a_thing = Some(a_thing);
+                                self
+                            }
+
+                            fn another_thing(&mut self, another_thing: String) -> &mut Self {
+                                self.another_thing = Some(another_thing);
+                                self
                             }
                         }
                    }.to_string());
@@ -150,6 +187,18 @@ mod tests {
                                     field0: None,
                                     field1: None
                                 }
+                            }
+                        }
+
+                        impl TestBuilder {
+                            fn field0(&mut self, field0: i32) -> &mut Self {
+                                self.field0 = Some(field0);
+                                self
+                            }
+
+                            fn field1(&mut self, field1: String) -> &mut Self {
+                                self.field1 = Some(field1);
+                                self
                             }
                         }
                    }.to_string());
